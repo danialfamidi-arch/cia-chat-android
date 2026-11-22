@@ -190,8 +190,76 @@ jobs:
         working-directory: native-source
         run: npx cap sync android
 
-      - name: Apply CIA CHAT launcher logo AFTER Capacitor sync (unique adaptive resource)
+      - name: Apply CIA CHAT launcher logo AFTER Capacitor sync (no Python packages)
         working-directory: native-source
         run: |
           set -euo pipefail
-          python3 -m pip install --qui
+          sudo apt-get update -qq
+          sudo apt-get install -y imagemagick
+          LOGO="www/cia-chat-logo.jpg"
+          test -s "$LOGO"
+          RES="android/app/src/main/res"
+          mkdir -p "$RES/mipmap-mdpi" "$RES/mipmap-hdpi" "$RES/mipmap-xhdpi" "$RES/mipmap-xxhdpi" "$RES/mipmap-xxxhdpi" "$RES/drawable-nodpi" "$RES/mipmap-anydpi-v26"
+
+          # Standard launcher icons: use the supplied CIA CHAT logo on white.
+          convert "$LOGO" -auto-orient -strip -resize '900x900>' -background white -gravity center -extent 1024x1024 /tmp/cia-chat-square.png
+          for spec in 'mdpi 48' 'hdpi 72' 'xhdpi 96' 'xxhdpi 144' 'xxxhdpi 192'; do
+            set -- $spec
+            density="$1"
+            size="$2"
+            convert /tmp/cia-chat-square.png -filter Lanczos -resize "${size}x${size}" "$RES/mipmap-${density}/ic_launcher.png"
+            cp "$RES/mipmap-${density}/ic_launcher.png" "$RES/mipmap-${density}/ic_launcher_round.png"
+            cp "$RES/mipmap-${density}/ic_launcher.png" "$RES/mipmap-${density}/ic_launcher_foreground.png"
+          done
+
+          # Adaptive foreground uses a unique resource name to avoid Capacitor's vector.
+          convert "$LOGO" -auto-orient -strip -resize '286x286>' -background none -gravity center -extent 432x432 "$RES/drawable-nodpi/cia_chat_launcher_foreground.png"
+          cat > "$RES/mipmap-anydpi-v26/ic_launcher.xml" <<'XML'
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+            <background android:drawable="@android:color/white" />
+            <foreground android:drawable="@drawable/cia_chat_launcher_foreground" />
+          </adaptive-icon>
+          XML
+          cp "$RES/mipmap-anydpi-v26/ic_launcher.xml" "$RES/mipmap-anydpi-v26/ic_launcher_round.xml"
+
+          grep -q 'android:icon="@mipmap/ic_launcher"' android/app/src/main/AndroidManifest.xml
+          grep -q 'android:roundIcon="@mipmap/ic_launcher_round"' android/app/src/main/AndroidManifest.xml
+          test -s "$RES/mipmap-xxxhdpi/ic_launcher.png"
+          test -s "$RES/mipmap-xxxhdpi/ic_launcher_round.png"
+          test -s "$RES/drawable-nodpi/cia_chat_launcher_foreground.png"
+          grep -q 'cia_chat_launcher_foreground' "$RES/mipmap-anydpi-v26/ic_launcher.xml"
+          grep -q 'cia_chat_launcher_foreground' "$RES/mipmap-anydpi-v26/ic_launcher_round.xml"
+          echo 'CIA CHAT launcher icons generated from www/cia-chat-logo.jpg.'
+
+      - name: Build APK
+        working-directory: native-source/android
+        run: ./gradlew assembleDebug
+
+      - name: Verify APK output and launcher icon resources
+        run: |
+          set -euo pipefail
+          APK="native-source/android/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          test -n "$AAPT"
+          "$AAPT" dump badging "$APK" | tee /tmp/cia-chat-apk-badging.txt
+          grep -q "^application:" /tmp/cia-chat-apk-badging.txt
+          unzip -l "$APK" | grep -q 'mipmap-xxxhdpi-v4/ic_launcher.png'
+          unzip -l "$APK" | grep -q 'mipmap-xxxhdpi-v4/ic_launcher_round.png'
+          unzip -l "$APK" | grep -q 'drawable-nodpi-v4/cia_chat_launcher_foreground.png'
+          # Check the actual compiled adaptive icon XML string pool. Capacitor's
+          # unrelated default vector may remain packaged, but launcher XML must
+          # point only to our uniquely named CIA CHAT foreground resource.
+          unzip -p "$APK" res/mipmap-anydpi-v26/ic_launcher.xml | strings | grep -q 'cia_chat_launcher_foreground'
+          unzip -p "$APK" res/mipmap-anydpi-v26/ic_launcher_round.xml | strings | grep -q 'cia_chat_launcher_foreground'
+          echo 'Verified: launcher and round launcher use the CIA CHAT adaptive foreground PNG.'
+          ls -lh "$APK"
+          sha256sum "$APK"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CIA-CHAT-Android-APK-V1.6
+          path: native-source/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
