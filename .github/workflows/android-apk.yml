@@ -232,32 +232,55 @@ jobs:
 
       - name: Add native Heads-Up and Android Back handling
         working-directory: native-source
-        shell: bash
         run: |
-          mkdir -p android/app/src/main/java/com/cia/chat
-          base64 -d > android/app/src/main/java/com/cia/chat/NotificationSettingsPlugin.java <<'CIA_PLUGIN_B64'
-          cGFja2FnZSBjb20uY2lhLmNoYXQ7CgppbXBvcnQgYW5kcm9pZC5hcHAuTm90aWZpY2F0aW9uQ2hh
-          bm5lbDsKaW1wb3J0IGFuZHJvaWQuYXBwLk5vdGlmaWNhdGlvbk1hbmFnZXI7CmltcG9ydCBhbmRy
-          b2lkLmNvbnRlbnQuSW50ZW50OwppbXBvcnQgYW5kcm9pZC5vcy5CdWlsZDsKaW1wb3J0IGFuZHJv
-          aWQucHJvdmlkZXIuU2V0dGluZ3M7CgppbXBvcnQgYW5kcm9pZHguYWN0aXZpdHkuT25CYWNrUHJl
-          c3NlZENhbGxiYWNrOwoKaW1wb3J0IGNvbS5nZXRjYXBhY2l0b3IuSlNPYmplY3Q7CmltcG9ydCBj
-          b20uZ2V0Y2FwYWNpdG9yLlBsdWdpbjsKaW1wb3J0IGNvbS5nZXRjYXBhY2l0b3IuUGx1Z2luQ2Fs
-          bDsKaW1wb3J0IGNvbS5nZXRjYXBhY2l0b3IuUGx1Z2luTWV0aG9kOwppbXBvcnQgY29tLmdldGNh
-          cGFjaXRvci5hbm5vdGF0aW9uLkNhcGFjaXRvclBsdWdpbjsKCkBDYXBhY2l0b3JQbHVnaW4obmFt
-          ZSA9ICJOb3RpZmljYXRpb25TZXR0aW5ncyIpCnB1YmxpYyBjbGFzcyBOb3RpZmljYXRpb25TZXR0
-          aW5nc1BsdWdpbiBleHRlbmRzIFBsdWdpbiB7CgogICAgQE92ZXJyaWRlCiAgICBwdWJsaWMgdm9p
-          ZCBsb2FkKCkgewogICAgICAgIHN1cGVyLmxvYWQoKTsKICAgICAgICBnZXRBY3Rpdml0eSgpLmdl
-          dE9uQmFja1ByZXNzZWREaXNwYXRjaGVyKCkuYWRkQ2FsbGJhY2soZ2V0QWN0aXZpdHkoKSwgbmV3
-          IE9uQmFja1ByZXNzZWRDYWxsYmFjayh0cnVlKSB7CiAgICAgICAgICAgIEBPdmVycmlkZQogICAg
-          ICAgICAgICBwdWJsaWMgdm9pZCBoYW5kbGVPbkJhY2tQcmVzc2VkKCkgewogICAgICAgICAgICAg
-          ICAgYm9vbGVhbiBjYW5Hb0JhY2sgPSBnZXRCcmlkZ2UoKSAhPSBudWxsICYmIGdldEJyaWRnZSgp
-          LmdldFdlYlZpZXcoKSAhPSBudWxsCiAgICAgICAgICAgICAgICAgICAgJiYgZ2V0QnJpZGdlKCku
-          Z2V0V2ViVmlldygpLmNhbkdvQmFjaygpOwogICAgICAgICAgICAgICAgaWYgKCFoYXNMaXN0ZW5l
-          cnMoImJhY2tCdXR0b24iKSkgewogICAgICAgICAgICAgICAgICAgIGlmIChjYW5Hb0JhY2spIGdl
-          dEJyaWRnZSgpLmdldFdlYlZpZXcoKS5nb0JhY2soKTsKICAgICAgICAgICAgICAgICAgICBlbHNl
-          IGdldEFjdGl2aXR5KCkuZmluaXNoKCk7CiAgICAgICAgICAgICAgICAgICAgcmV0dXJuOwogICAg
-          ICAgICAgICAgICAgfQogICAgICAgICAgICAgICAgSlNPYmplY3QgZXZlbnQgPSBuZXcgSlNPYmpl
-          Y3QoKTsKICAgICAgICAgICAgICAgIGV2ZW50LnB1dCgiY2FuR29CYWNrIiwgY2FuR29CYWNrKTsK
-          ICAgICAgICAgICAgICAgIG5vdGlmeUxpc3RlbmVycygiYmFja0J1dHRvbiIsIGV2ZW50LCB0cnVl
-          KTsKICAgICAgICAgICAgfQogICAgICAgIH0pOwogICAgfQoKICAgIEBQbHVnaW5NZXRob2QKICAg
-          IHB1YmxpYyB2b2lkIG9wZW5Da
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          root = Path('android/app/src/main/java/com/cia/chat')
+          root.mkdir(parents=True, exist_ok=True)
+          plugin = 'package com.cia.chat;\n\nimport android.content.Intent;\nimport android.os.Build;\nimport android.provider.Settings;\nimport android.app.NotificationChannel;\nimport android.app.NotificationManager;\nimport com.getcapacitor.JSObject;\nimport com.getcapacitor.Plugin;\nimport com.getcapacitor.PluginCall;\nimport com.getcapacitor.PluginMethod;\nimport com.getcapacitor.annotation.CapacitorPlugin;\nimport androidx.activity.OnBackPressedCallback;\n\n@CapacitorPlugin(name = "NotificationSettings")\npublic class NotificationSettingsPlugin extends Plugin {\n    @Override public void load() {\n        super.load();\n        getActivity().getOnBackPressedDispatcher().addCallback(getActivity(), new OnBackPressedCallback(true) {\n            @Override public void handleOnBackPressed() {\n                boolean canGoBack = getBridge() != null && getBridge().getWebView() != null && getBridge().getWebView().canGoBack();\n                if (!hasListeners("backButton")) {\n                    if (canGoBack) getBridge().getWebView().goBack(); else getActivity().finish();\n                    return;\n                }\n                JSObject event = new JSObject();\n                event.put("canGoBack", canGoBack);\n                notifyListeners("backButton", event, true);\n            }\n        });\n    }\n\n    @PluginMethod public void openChannelSettings(PluginCall call) {\n        String channelId = call.getString("channelId", "cia_messages");\n        try {\n            Intent intent;\n            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {\n                NotificationManager manager = (NotificationManager) getContext().getSystemService(android.content.Context.NOTIFICATION_SERVICE);\n                NotificationChannel channel = manager == null ? null : manager.getNotificationChannel(channelId);\n                if (channel == null) throw new IllegalStateException("Kanal notifikasi belum tersedia: " + channelId);\n                intent = new Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS);\n                intent.putExtra(Settings.EXTRA_APP_PACKAGE, getContext().getPackageName());\n                intent.putExtra(Settings.EXTRA_CHANNEL_ID, channelId);\n            } else {\n                intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);\n                intent.putExtra(Settings.EXTRA_APP_PACKAGE, getContext().getPackageName());\n            }\n            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);\n            getContext().startActivity(intent);\n            JSObject result = new JSObject();\n            result.put("opened", true);\n            result.put("channelId", channelId);\n            call.resolve(result);\n        } catch (Exception e) { call.reject("Tidak dapat membuka pengaturan kanal notifikasi Android", e); }\n    }\n\n    @PluginMethod public void openAppSettings(PluginCall call) {\n        try {\n            Intent intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);\n            intent.putExtra(Settings.EXTRA_APP_PACKAGE, getContext().getPackageName());\n            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);\n            getContext().startActivity(intent);\n            call.resolve();\n        } catch (Exception e) { call.reject("Tidak dapat membuka pengaturan notifikasi Android", e); }\n    }\n\n    @PluginMethod public void exitApp(PluginCall call) { call.resolve(); getActivity().finish(); }\n}\n'
+          main_activity = 'package com.cia.chat;\n\nimport android.app.NotificationChannel;\nimport android.app.NotificationManager;\nimport android.content.Context;\nimport android.os.Build;\nimport android.os.Bundle;\nimport com.getcapacitor.BridgeActivity;\n\npublic class MainActivity extends BridgeActivity {\n    @Override public void onCreate(Bundle savedInstanceState) {\n        registerPlugin(NotificationSettingsPlugin.class);\n        super.onCreate(savedInstanceState);\n        createCiaNotificationChannels();\n    }\n    private void createCiaNotificationChannels() {\n        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;\n        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);\n        if (manager == null) return;\n        NotificationChannel messages = new NotificationChannel("cia_messages", "Pesan CIA CHAT", NotificationManager.IMPORTANCE_HIGH);\n        messages.setDescription("Notifikasi pesan pribadi, grup, komentar, dan aktivitas CIA CHAT.");\n        messages.enableVibration(true);\n        messages.setVibrationPattern(new long[] {0, 220, 120, 220});\n        manager.createNotificationChannel(messages);\n        NotificationChannel calls = new NotificationChannel("cia_calls", "Panggilan CIA CHAT", NotificationManager.IMPORTANCE_HIGH);\n        calls.setDescription("Notifikasi panggilan suara dan video CIA CHAT.");\n        calls.enableVibration(true);\n        calls.setVibrationPattern(new long[] {0, 350, 180, 350, 180, 350});\n        manager.createNotificationChannel(calls);\n    }\n}\n'
+          (root / 'NotificationSettingsPlugin.java').write_text(plugin, encoding='utf-8')
+          (root / 'MainActivity.java').write_text(main_activity, encoding='utf-8')
+          print('Native Java sources written without base64 encoding.')
+          PYTHON
+
+      - name: Configure Firebase
+        working-directory: native-source
+        run: |
+          cp google-services.json android/app/google-services.json
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          p = Path('android/build.gradle')
+          s = p.read_text()
+          marker = "classpath 'com.google.gms:google-services:4.4.2'"
+          if marker not in s:
+              s = s.replace('dependencies {', 'dependencies {\n        ' + marker, 1)
+          p.write_text(s)
+          p = Path('android/app/build.gradle')
+          s = p.read_text()
+          if 'com.google.gms.google-services' not in s:
+              p.write_text(s + "\napply plugin: 'com.google.gms.google-services'\n")
+          PYTHON
+
+      - name: Sync Capacitor
+        working-directory: native-source
+        run: npx cap sync android
+
+      - name: Build APK
+        working-directory: native-source/android
+        run: ./gradlew assembleDebug
+
+      - name: Verify APK output
+        run: |
+          APK="native-source/android/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          ls -lh "$APK"
+          sha256sum "$APK"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CIA-CHAT-Android-APK-V1.5
+          path: native-source/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
