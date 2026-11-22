@@ -1,4 +1,4 @@
-name: Build CIA CHAT Android APK V1.6 CIA Logo Fix
+name: Build CIA CHAT Android APK V1.6 Adaptive Icon Fix
 on:
   workflow_dispatch:
   push:
@@ -197,6 +197,10 @@ jobs:
           python3 -m pip install --quiet pillow
           test -s www/cia-chat-logo.jpg
           python3 -c "from pathlib import Path; from PIL import Image, ImageOps; r=Path('android/app/src/main/res'); im=Image.open('www/cia-chat-logo.jpg').convert('RGB'); sq=Image.new('RGB',(1024,1024),'white'); fit=ImageOps.contain(im,(900,900),method=Image.Resampling.LANCZOS); sq.paste(fit,((1024-fit.width)//2,(1024-fit.height)//2)); sizes={'mdpi':48,'hdpi':72,'xhdpi':96,'xxhdpi':144,'xxxhdpi':192}; [(r.joinpath('mipmap-'+d).mkdir(parents=True,exist_ok=True)) for d in sizes]; [(sq.resize((n,n),Image.Resampling.LANCZOS).save(r/f'mipmap-{d}/ic_launcher.png'),sq.resize((n,n),Image.Resampling.LANCZOS).save(r/f'mipmap-{d}/ic_launcher_round.png')) for d,n in sizes.items()]; fg=Image.new('RGBA',(432,432),(255,255,255,0)); mark=ImageOps.contain(sq,(260,260),method=Image.Resampling.LANCZOS).convert('RGBA'); fg.alpha_composite(mark,((432-mark.width)//2,(432-mark.height)//2)); dr=r/'drawable-nodpi'; dr.mkdir(parents=True,exist_ok=True); fg.save(dr/'ic_launcher_foreground.png',optimize=True)"
+          # Capacitor's default vector has the same resource name and takes priority
+          # over drawable-nodpi on adaptive-icon Android versions. Remove the conflict.
+          rm -f android/app/src/main/res/drawable-anydpi-v24/ic_launcher_foreground.xml
+          test ! -f android/app/src/main/res/drawable-anydpi-v24/ic_launcher_foreground.xml
           mkdir -p android/app/src/main/res/mipmap-anydpi-v26
           printf '%s\n' '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">' '  <background android:drawable="@android:color/white" />' '  <foreground android:drawable="@drawable/ic_launcher_foreground" />' '</adaptive-icon>' > android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
           cp android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
@@ -221,7 +225,12 @@ jobs:
           grep -q "^application:" /tmp/cia-chat-apk-badging.txt
           unzip -l "$APK" | grep -q 'mipmap-xxxhdpi.*ic_launcher.png'
           unzip -l "$APK" | grep -q 'mipmap-anydpi-v26.*ic_launcher.xml'
-          echo 'APK contains launcher icon and adaptive icon resources.'
+          unzip -l "$APK" | grep -q 'drawable-nodpi-v4/ic_launcher_foreground.png'
+          if unzip -l "$APK" | grep -q 'drawable-anydpi-v24/ic_launcher_foreground.xml'; then
+            echo 'ERROR: Conflicting Capacitor vector foreground is still packaged.' >&2
+            exit 1
+          fi
+          echo 'APK contains CIA CHAT PNG foreground; conflicting Capacitor vector is absent.'
           ls -lh "$APK"
           sha256sum "$APK"
 
