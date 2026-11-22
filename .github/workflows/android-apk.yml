@@ -1,0 +1,80 @@
+
+name: Build CIA CHAT Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore ZIP source
+        run: |
+          cat cia-chat-native-part-00 cia-chat-native-part-01 > source.zip
+          unzip -tq source.zip
+          mkdir native-source
+          unzip -q source.zip -d native-source
+          test -f native-source/package.json
+          test -f native-source/google-services.json
+          test -f native-source/www/index.html
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install dependencies
+        working-directory: native-source
+        run: npm install
+
+      - name: Generate Android
+        working-directory: native-source
+        run: npx cap add android
+
+      - name: Configure Firebase
+        working-directory: native-source
+        run: |
+          cp google-services.json android/app/google-services.json
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('android/build.gradle')
+          s = p.read_text()
+          marker = "classpath 'com.google.gms:google-services:4.4.2'"
+          if marker not in s:
+              s = s.replace('dependencies {', 'dependencies {\n        ' + marker, 1)
+          p.write_text(s)
+          p = Path('android/app/build.gradle')
+          s = p.read_text()
+          if 'com.google.gms.google-services' not in s:
+              p.write_text(s + "\napply plugin: 'com.google.gms.google-services'\n")
+          PY
+
+      - name: Sync Capacitor
+        working-directory: native-source
+        run: npx cap sync android
+
+      - name: Build APK
+        working-directory: native-source/android
+        run: ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CIA-CHAT-Android-APK
+          path: native-source/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
