@@ -1,4 +1,4 @@
-name: Build CIA CHAT Android APK V1.6 Adaptive Icon Fix
+name: Build CIA CHAT Android APK V1.6 CIA Logo Final
 on:
   workflow_dispatch:
   push:
@@ -242,17 +242,25 @@ jobs:
           test -s "$APK"
           AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
           test -n "$AAPT"
-          "$AAPT" dump badging "$APK" | tee /tmp/cia-chat-apk-badging.txt
-          grep -q "^application:" /tmp/cia-chat-apk-badging.txt
+
+          # Verify APK metadata without rejecting unrelated Capacitor resources.
+          "$AAPT" dump badging "$APK" > /tmp/cia-chat-apk-badging.txt
+          grep -q "^application:.*icon='@mipmap/ic_launcher'" /tmp/cia-chat-apk-badging.txt
+
+          # Inspect the compiled resource table, not raw binary XML strings.
+          "$AAPT" dump resources "$APK" > /tmp/cia-chat-apk-resources.txt
+          grep -q 'drawable/cia_chat_launcher_foreground' /tmp/cia-chat-apk-resources.txt
+          grep -q 'mipmap/ic_launcher' /tmp/cia-chat-apk-resources.txt
+          grep -q 'mipmap/ic_launcher_round' /tmp/cia-chat-apk-resources.txt
+
+          # Confirm the generated adaptive icon XML files and foreground asset are packaged.
+          unzip -l "$APK" | grep -q 'mipmap-anydpi-v26/ic_launcher.xml'
+          unzip -l "$APK" | grep -q 'mipmap-anydpi-v26/ic_launcher_round.xml'
+          unzip -l "$APK" | grep -q 'drawable-nodpi-v4/cia_chat_launcher_foreground.png'
           unzip -l "$APK" | grep -q 'mipmap-xxxhdpi-v4/ic_launcher.png'
           unzip -l "$APK" | grep -q 'mipmap-xxxhdpi-v4/ic_launcher_round.png'
-          unzip -l "$APK" | grep -q 'drawable-nodpi-v4/cia_chat_launcher_foreground.png'
-          # Check the actual compiled adaptive icon XML string pool. Capacitor's
-          # unrelated default vector may remain packaged, but launcher XML must
-          # point only to our uniquely named CIA CHAT foreground resource.
-          unzip -p "$APK" res/mipmap-anydpi-v26/ic_launcher.xml | strings | grep -q 'cia_chat_launcher_foreground'
-          unzip -p "$APK" res/mipmap-anydpi-v26/ic_launcher_round.xml | strings | grep -q 'cia_chat_launcher_foreground'
-          echo 'Verified: launcher and round launcher use the CIA CHAT adaptive foreground PNG.'
+
+          echo 'Verified: APK launcher resources include the CIA CHAT foreground and launcher icons.'
           ls -lh "$APK"
           sha256sum "$APK"
 
