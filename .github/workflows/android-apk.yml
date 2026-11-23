@@ -1,4 +1,4 @@
-name: Build CIA CHAT Android APK V1.6 CIA Logo Final - Artifact Safe
+name: Build CIA CHAT Android APK V1.7 Story Thumbnail Autoplay - FCM Preserved
 on:
   workflow_dispatch:
   push:
@@ -17,6 +17,7 @@ jobs:
 
       - name: Restore ZIP source
         run: |
+          set -euo pipefail
           cat cia-chat-native-part-00 cia-chat-native-part-01 > source.zip
           unzip -tq source.zip
           mkdir native-source
@@ -25,31 +26,28 @@ jobs:
           test -f native-source/google-services.json
           test -f native-source/www/index.html
 
-      - name: Patch notification tap routing V1.5
+      - name: Install latest CIA CHAT Story HTML V178
+        run: |
+          set -euo pipefail
+          test -s index.html || { echo 'index.html V178 harus diunggah ke root repository.'; exit 1; }
+          grep -q 'CIA_CHAT_BUILD="V178-STORY-REAL-THUMBNAIL-AUTOPLAY"' index.html
+          install -m 0644 index.html native-source/www/index.html
+          cmp -s index.html native-source/www/index.html
+          test -s native-source/www/cia-chat-logo.jpg
+          echo 'V178 HTML copied and verified for the Android APK.'
+
+      - name: Verify native notification tap routing (preserve V1.5 behavior)
         working-directory: native-source
         run: |
-          python3 - <<'PYTHON'
-          from pathlib import Path
-          import base64
-          p = Path('www/index.html')
-          s = p.read_text(encoding='utf-8')
-          old_variants = [
-              base64.b64decode('Y29uc3QgdXJsPW5ldyBVUkwoZGF0YS51cmx8fCcvJyxsb2NhdGlvbi5vcmlnaW4pOwogICAgaWYoZGF0YS5zZW5kZXJfaWQpdXJsLnNlYXJjaFBhcmFtcy5zZXQoJ29wZW5fY2hhdCcsZGF0YS5zZW5kZXJfaWQpOwogICAgZWxzZSBpZihkYXRhLmdyb3VwX2lkKXVybC5zZWFyY2hQYXJhbXMuc2V0KCdvcGVuX2dyb3VwJyxkYXRhLmdyb3VwX2lkKTsKICAgIGVsc2UgaWYoZGF0YS5zdG9yeV9pZCl1cmwuc2VhcmNoUGFyYW1zLnNldCgnb3Blbl9zdG9yeScsZGF0YS5zdG9yeV9pZCk7CiAgICBsb2NhdGlvbi5ocmVmPXVybC5wYXRobmFtZSt1cmwuc2VhcmNoK3VybC5oYXNoOw==').decode(),
-              base64.b64decode('Y29uc3QgdXJsPW5ldyBVUkwoZGF0YS51cmx8fCcvJyxsb2NhdGlvbi5vcmlnaW4pOwogICAgaWYoZGF0YS50eXBlPT09J2luY29taW5nX2NhbGwnICYmIGRhdGEuY2FsbF9zZXNzaW9uX2lkKSB1cmwuc2VhcmNoUGFyYW1zLnNldCgnaW5jb21pbmdfY2FsbCcsZGF0YS5jYWxsX3Nlc3Npb25faWQpOwogICAgZWxzZSBpZihkYXRhLnNlbmRlcl9pZCAmJiBkYXRhLnR5cGUhPT0nZ3JvdXBfbWVzc2FnZScpIHVybC5zZWFyY2hQYXJhbXMuc2V0KCdvcGVuX2NoYXQnLGRhdGEuc2VuZGVyX2lkKTsKICAgIGVsc2UgaWYoZGF0YS5ncm91cF9pZCkgdXJsLnNlYXJjaFBhcmFtcy5zZXQoJ29wZW5fZ3JvdXAnLGRhdGEuZ3JvdXBfaWQpOwogICAgZWxzZSBpZihkYXRhLnN0b3J5X2lkKSB1cmwuc2VhcmNoUGFyYW1zLnNldCgnb3Blbl9zdG9yeScsZGF0YS5zdG9yeV9pZCk7CiAgICBlbHNlIGlmKGRhdGEuc3RvcnlfY29tbWVudF9pZCkgdXJsLnNlYXJjaFBhcmFtcy5zZXQoJ29wZW5fc3RvcnlfY29tbWVudF9pZCcsZGF0YS5zdG9yeV9jb21tZW50X2lkKTsKICAgIGVsc2UgaWYoZGF0YS5ncm91cF9tZXNzYWdlX2lkKSB1cmwuc2VhcmNoUGFyYW1zLnNldCgnb3Blbl9ncm91cF9tZXNzYWdlJyxkYXRhLmdyb3VwX21lc3NhZ2VfaWQpOwogICAgbG9jYXRpb24uaHJlZj11cmwucGF0aG5hbWUrdXJsLnNlYXJjaCt1cmwuaGFzaDs=').decode(),
-          ]
-          new = base64.b64decode('bGV0IHVybD1uZXcgVVJMKGRhdGEudXJsfHwnLycsbG9jYXRpb24ub3JpZ2luKTsKICAgIGlmKHVybC5vcmlnaW4hPT1sb2NhdGlvbi5vcmlnaW4pIHVybD1uZXcgVVJMKCcvJyxsb2NhdGlvbi5vcmlnaW4pOwogICAgaWYoZGF0YS50eXBlPT09J2luY29taW5nX2NhbGwnICYmIGRhdGEuY2FsbF9zZXNzaW9uX2lkKSB1cmwuc2VhcmNoUGFyYW1zLnNldCgnaW5jb21pbmdfY2FsbCcsZGF0YS5jYWxsX3Nlc3Npb25faWQpOwogICAgZWxzZSBpZihkYXRhLnR5cGU9PT0nc3RvcnlfY29tbWVudCcgJiYgZGF0YS5zdG9yeV9jb21tZW50X2lkKXsKICAgICBpZighdXJsLnNlYXJjaFBhcmFtcy5oYXMoJ29wZW5fc3RvcnlfY29tbWVudCcpICYmIGRhdGEuc3RvcnlfaWQpIHVybC5zZWFyY2hQYXJhbXMuc2V0KCdvcGVuX3N0b3J5X2NvbW1lbnQnLGRhdGEuc3RvcnlfaWQpOwogICAgIHVybC5zZWFyY2hQYXJhbXMuc2V0KCdzdG9yeV9jb21tZW50X2lkJyxkYXRhLnN0b3J5X2NvbW1lbnRfaWQpOwogICAgfWVsc2UgaWYoZGF0YS50eXBlPT09J2dyb3VwX21lc3NhZ2UnICYmIGRhdGEuZ3JvdXBfbWVzc2FnZV9pZCkgdXJsLnNlYXJjaFBhcmFtcy5zZXQoJ29wZW5fZ3JvdXBfbWVzc2FnZScsZGF0YS5ncm91cF9tZXNzYWdlX2lkKTsKICAgIGVsc2UgaWYoZGF0YS50eXBlPT09J21lc3NhZ2UnICYmIGRhdGEuc2VuZGVyX2lkKSB1cmwuc2VhcmNoUGFyYW1zLnNldCgnb3Blbl9jaGF0JyxkYXRhLnNlbmRlcl9pZCk7CiAgICBlbHNlIGlmKGRhdGEuZ3JvdXBfaWQpIHVybC5zZWFyY2hQYXJhbXMuc2V0KCdvcGVuX2dyb3VwJyxkYXRhLmdyb3VwX2lkKTsKICAgIGxvY2F0aW9uLmhyZWY9dXJsLnBhdGhuYW1lK3VybC5zZWFyY2grdXJsLmhhc2g7').decode()
-          if new in s:
-              print('V1.5 notification routing already present')
-          else:
-              for old in old_variants:
-                  if old in s:
-                      s = s.replace(old, new, 1)
-                      break
-              else:
-                  raise SystemExit('Versi sumber tidak dikenali. Build dihentikan; file sumber tidak diubah.')
-              p.write_text(s, encoding='utf-8')
-              print('V1.5 notification routing patched successfully')
-          PYTHON
+          set -euo pipefail
+          HTML='www/index.html'
+          grep -q 'pushNotificationActionPerformed' "$HTML"
+          grep -q 'incoming_call' "$HTML"
+          grep -q 'story_comment_id' "$HTML"
+          grep -q 'group_message_id' "$HTML"
+          grep -q 'open_chat' "$HTML"
+          grep -q 'url.origin!==location.origin' "$HTML"
+          echo 'Existing native FCM notification tap routes verified; no FCM source rewritten.'
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -257,7 +255,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CIA-CHAT-Android-APK-V1.6-FINAL
+          name: CIA-CHAT-Android-APK-V1.7-STORY-THUMBNAIL-AUTOPLAY
           path: native-source/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
