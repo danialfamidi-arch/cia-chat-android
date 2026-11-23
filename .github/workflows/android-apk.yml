@@ -1,5 +1,4 @@
-
-name: Build CIA CHAT Android APK V2 FCM Heads-Up
+name: Build CIA CHAT Android APK V3 WhatsApp Style Avatar Heads-Up
 
 on:
   workflow_dispatch:
@@ -63,89 +62,122 @@ jobs:
         working-directory: native-source
         run: npm install
 
-      - name: Install native FCM service
+      - name: Generate Android and sync
         working-directory: native-source
         run: |
+          set -euo pipefail
+          npx cap add android
+          npx cap sync android
+          test -d android/app/src/main/java
+          test -s android/build.gradle
+          test -s android/app/build.gradle
+
+      - name: Install native FCM service with sender avatar and conversation shortcut
+        working-directory: native-source
+        run: |
+          set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
           p=Path('node_modules/@capacitor/push-notifications/android/src/main/java/com/capacitorjs/plugins/pushnotifications/MessagingService.java')
           if not p.exists():
-              raise SystemExit('Capacitor MessagingService.java tidak ditemukan.')
-          src='''package com.capacitorjs.plugins.pushnotifications;
+              raise SystemExit('Capacitor MessagingService.java tidak ditemukan; build dihentikan.')
+          src=r'''package com.capacitorjs.plugins.pushnotifications;
           import android.app.NotificationChannel;
           import android.app.NotificationManager;
           import android.app.PendingIntent;
           import android.content.Context;
           import android.content.Intent;
+          import android.content.pm.ShortcutInfo;
+          import android.content.pm.ShortcutManager;
           import android.graphics.Bitmap;
           import android.graphics.BitmapFactory;
+          import android.graphics.Canvas;
+          import android.graphics.Paint;
+          import android.graphics.Path;
+          import android.graphics.RectF;
+          import android.graphics.drawable.Icon;
           import android.net.Uri;
           import android.os.Build;
           import android.os.Bundle;
           import androidx.core.app.NotificationCompat;
-          import androidx.core.app.Person;
           import androidx.core.graphics.drawable.IconCompat;
           import com.google.firebase.messaging.FirebaseMessagingService;
           import com.google.firebase.messaging.RemoteMessage;
+          import java.io.ByteArrayOutputStream;
+          import java.io.File;
+          import java.io.FileOutputStream;
           import java.io.InputStream;
           import java.net.HttpURLConnection;
           import java.net.URL;
+          import java.util.Collections;
           import java.util.Map;
 
           public class MessagingService extends FirebaseMessagingService {
-            public void onMessageReceived(RemoteMessage msg) {
+            @Override public void onMessageReceived(RemoteMessage msg) {
               super.onMessageReceived(msg);
               PushNotificationsPlugin.sendRemoteMessage(msg);
               Map<String,String> d=msg.getData();
-              if(d==null||d.isEmpty())return;
+              if(d==null || d.isEmpty()) return;
 
               final String type=v(d,"type","message");
-              final String title=v(d,"title","CIA CHAT");
-              final String body=v(d,"body","Pesan baru");
-              final String sender=v(d,"sender_name",title);
-              final String avatarUrl=v(d,"sender_avatar_url","");
               final boolean call="incoming_call".equals(type);
               final boolean group="group_message".equals(type);
+              final String title=v(d,"title","CIA CHAT");
+              final String body=v(d,"body","Pesan baru");
+              final String sender=v(d,"sender_name",v(d,"full_name",title));
+              final String avatarUrl=v(d,"sender_avatar_url",
+                v(d,"avatar_url",v(d,"sender_avatar",v(d,"profile_photo_url",v(d,"photo_url","")))));
               final String channel=call?"cia_calls":"cia_messages";
 
               NotificationManager nm=(NotificationManager)getSystemService(Context.NOTIFICATION_SERVICE);
-              if(nm==null)return;
-
+              if(nm==null) return;
               if(Build.VERSION.SDK_INT>=26 && nm.getNotificationChannel(channel)==null) {
                 NotificationChannel ch=new NotificationChannel(channel,
                   call?"Panggilan CIA CHAT":"Pesan CIA CHAT",
                   NotificationManager.IMPORTANCE_HIGH);
                 ch.enableVibration(true);
+                ch.enableLights(true);
                 nm.createNotificationChannel(ch);
               }
 
               Intent launch=getPackageManager().getLaunchIntentForPackage(getPackageName());
-              if(launch==null)return;
+              if(launch==null) return;
               launch.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP|Intent.FLAG_ACTIVITY_NEW_TASK);
-
               Bundle extras=new Bundle();
-              for(Map.Entry<String,String> e:d.entrySet())extras.putString(e.getKey(),e.getValue());
+              for(Map.Entry<String,String> e:d.entrySet()) extras.putString(e.getKey(),e.getValue());
               launch.putExtras(extras);
-
               String route=v(d,"url","");
-              if(!route.isEmpty())launch.setData(Uri.parse("https://localhost"+(route.startsWith("/")?route:"/"+route)));
+              if(!route.isEmpty()) launch.setData(Uri.parse("https://localhost"+(route.startsWith("/")?route:"/"+route)));
 
-              String key=v(d,"message_id",
-                v(d,"group_message_id",
-                v(d,"story_comment_id",
-                v(d,"call_session_id",
-                v(d,"notification_tag","cia-chat")))));
-
-              int id=key.hashCode()&0x7fffffff;
+              String key=v(d,"message_id",v(d,"group_message_id",
+                v(d,"story_comment_id",v(d,"call_session_id",v(d,"notification_tag","cia-chat")))));
+              int id=key.hashCode() & 0x7fffffff;
               PendingIntent pi=PendingIntent.getActivity(this,id,launch,
-                PendingIntent.FLAG_UPDATE_CURRENT|
-                (Build.VERSION.SDK_INT>=23?PendingIntent.FLAG_IMMUTABLE:0));
+                PendingIntent.FLAG_UPDATE_CURRENT|(Build.VERSION.SDK_INT>=23?PendingIntent.FLAG_IMMUTABLE:0));
 
-              Person person=new Person.Builder().setName(sender).setImportant(true).build();
-              NotificationCompat.MessagingStyle style=
-                new NotificationCompat.MessagingStyle(person).addMessage(body,System.currentTimeMillis(),person);
+              // Fetch or reuse the sender photo BEFORE the first notify(), so the Heads-Up
+              // notification itself can contain the avatar rather than receiving it too late.
+              Bitmap avatar=null;
+              if(!call && !avatarUrl.isEmpty() && avatarUrl.startsWith("https://")) {
+                avatar=loadAvatar(avatarUrl);
+              }
 
-              if(group)style.setConversationTitle(title).setGroupConversation(true);
+              androidx.core.app.Person senderPerson=new androidx.core.app.Person.Builder()
+                .setName(sender)
+                .setImportant(true)
+                .setIcon(avatar==null?null:IconCompat.createWithBitmap(avatar))
+                .build();
+              androidx.core.app.Person selfPerson=new androidx.core.app.Person.Builder()
+                .setName("Anda").build();
+
+              NotificationCompat.MessagingStyle style=new NotificationCompat.MessagingStyle(selfPerson)
+                .addMessage(body,System.currentTimeMillis(),senderPerson)
+                .setGroupConversation(group);
+              if(group) style.setConversationTitle(title);
+
+              String conversationKey=v(d,"conversation_id",v(d,"chat_id",v(d,"sender_id",key)));
+              String shortcutId="cia_chat_"+(Math.abs(conversationKey.hashCode()));
+              if(!call && avatar!=null) publishConversationShortcut(shortcutId,sender,avatar,launch);
 
               NotificationCompat.Builder b=new NotificationCompat.Builder(this,channel)
                 .setSmallIcon(getApplicationInfo().icon)
@@ -157,72 +189,94 @@ jobs:
                 .setCategory(call?NotificationCompat.CATEGORY_CALL:NotificationCompat.CATEGORY_MESSAGE)
                 .setPriority(NotificationCompat.PRIORITY_MAX)
                 .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-                .setOnlyAlertOnce(false)
-                .setDefaults(NotificationCompat.DEFAULT_ALL);
+                .setDefaults(NotificationCompat.DEFAULT_ALL)
+                .setOnlyAlertOnce(false);
 
-              // Tampilkan notifikasi dahulu, jangan menunggu foto profil.
+              if(avatar!=null) b.setLargeIcon(avatar);
+              if(!call && Build.VERSION.SDK_INT>=26 && avatar!=null) b.setShortcutId(shortcutId);
               nm.notify(id,b.build());
+            }
 
-              if(!avatarUrl.isEmpty()&&avatarUrl.startsWith("https://")) {
-                new Thread(()->{
-                  Bitmap bmp=avatar(avatarUrl);
-                  if(bmp==null)return;
-
-                  Person withIcon=new Person.Builder()
-                    .setName(sender)
-                    .setIcon(IconCompat.createWithBitmap(bmp))
-                    .setImportant(true).build();
-
-                  NotificationCompat.MessagingStyle s=
-                    new NotificationCompat.MessagingStyle(withIcon)
-                    .addMessage(body,System.currentTimeMillis(),withIcon);
-
-                  if(group)s.setConversationTitle(title).setGroupConversation(true);
-
-                  NotificationCompat.Builder updated=new NotificationCompat.Builder(this,channel)
-                    .setSmallIcon(getApplicationInfo().icon)
-                    .setContentTitle(group?title:sender)
-                    .setContentText(body)
-                    .setStyle(s)
-                    .setLargeIcon(bmp)
-                    .setContentIntent(pi)
-                    .setAutoCancel(true)
-                    .setCategory(call?NotificationCompat.CATEGORY_CALL:NotificationCompat.CATEGORY_MESSAGE)
-                    .setPriority(NotificationCompat.PRIORITY_MAX)
-                    .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-                    .setOnlyAlertOnce(true);
-
-                  nm.notify(id,updated.build());
-                }).start();
+            private void publishConversationShortcut(String shortcutId,String sender,Bitmap avatar,Intent launch) {
+              if(Build.VERSION.SDK_INT<25 || avatar==null) return;
+              try {
+                ShortcutManager sm=getSystemService(ShortcutManager.class);
+                if(sm==null) return;
+                String shortName=sender.length()>25?sender.substring(0,25):sender;
+                android.app.Person nativePerson=new android.app.Person.Builder()
+                  .setName(sender).setIcon(Icon.createWithBitmap(avatar)).build();
+                ShortcutInfo.Builder sb=new ShortcutInfo.Builder(this,shortcutId)
+                  .setShortLabel(shortName)
+                  .setLongLabel("Chat dengan "+sender)
+                  .setIcon(Icon.createWithBitmap(avatar))
+                  .setIntent(new Intent(launch))
+                  .setPersons(new android.app.Person[]{nativePerson});
+                if(Build.VERSION.SDK_INT>=29) sb.setLongLived(true);
+                ShortcutInfo info=sb.build();
+                if(Build.VERSION.SDK_INT>=30) sm.pushDynamicShortcut(info);
+                else sm.addDynamicShortcuts(Collections.singletonList(info));
+              } catch(Exception ignored) {
+                // Notification still works as MessagingStyle even if shortcut publishing fails.
               }
             }
 
-            static String v(Map<String,String>d,String k,String f) {
-              String x=d.get(k);
-              return x==null||x.trim().isEmpty()?f:x;
-            }
-
-            Bitmap avatar(String a) {
+            private Bitmap loadAvatar(String url) {
               HttpURLConnection c=null;
+              File cache=new File(getCacheDir(),"cia-avatar-"+Integer.toHexString(url.hashCode())+".png");
               try {
-                c=(HttpURLConnection)new URL(a).openConnection();
-                c.setConnectTimeout(2500);
-                c.setReadTimeout(2500);
+                if(cache.isFile() && cache.length()>0) {
+                  Bitmap cached=BitmapFactory.decodeFile(cache.getAbsolutePath());
+                  if(cached!=null) return circle(cached);
+                }
+                c=(HttpURLConnection)new URL(url).openConnection();
+                c.setConnectTimeout(1800);
+                c.setReadTimeout(1800);
                 c.setInstanceFollowRedirects(true);
                 c.setRequestProperty("Accept","image/*");
+                c.setRequestProperty("User-Agent","CIA-CHAT-Android");
                 c.connect();
-                if(c.getResponseCode()!=200)return null;
-                try(InputStream in=c.getInputStream()) {
-                  return BitmapFactory.decodeStream(in);
+                if(c.getResponseCode()!=200) return null;
+                try(InputStream in=c.getInputStream(); ByteArrayOutputStream out=new ByteArrayOutputStream()) {
+                  byte[] buf=new byte[8192];
+                  int n,total=0;
+                  while((n=in.read(buf))!=-1) {
+                    total+=n;
+                    if(total>2*1024*1024) return null;
+                    out.write(buf,0,n);
+                  }
+                  byte[] bytes=out.toByteArray();
+                  Bitmap decoded=BitmapFactory.decodeByteArray(bytes,0,bytes.length);
+                  if(decoded==null) return null;
+                  try(FileOutputStream fos=new FileOutputStream(cache)) { fos.write(bytes); }
+                  return circle(decoded);
                 }
               } catch(Exception ex) {
                 return null;
               } finally {
-                if(c!=null)c.disconnect();
+                if(c!=null) c.disconnect();
               }
             }
 
-            public void onNewToken(String token) {
+            private Bitmap circle(Bitmap source) {
+              int size=192;
+              Bitmap output=Bitmap.createBitmap(size,size,Bitmap.Config.ARGB_8888);
+              Canvas canvas=new Canvas(output);
+              Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
+              float scale=Math.max((float)size/source.getWidth(),(float)size/source.getHeight());
+              float w=source.getWidth()*scale, h=source.getHeight()*scale;
+              RectF dst=new RectF((size-w)/2f,(size-h)/2f,(size+w)/2f,(size+h)/2f);
+              Path path=new Path(); path.addCircle(size/2f,size/2f,size/2f,Path.Direction.CW);
+              canvas.save(); canvas.clipPath(path); canvas.drawBitmap(source,null,dst,paint); canvas.restore();
+              if(source!=output && !source.isRecycled()) source.recycle();
+              return output;
+            }
+
+            private static String v(Map<String,String>d,String k,String fallback) {
+              String x=d.get(k);
+              return x==null||x.trim().isEmpty()?fallback:x.trim();
+            }
+
+            @Override public void onNewToken(String token) {
               super.onNewToken(token);
               PushNotificationsPlugin.onNewToken(token);
             }
@@ -230,26 +284,14 @@ jobs:
           p.write_text(src,encoding='utf-8')
           PY
 
-      # Android HARUS dibuat sebelum menulis file Java ke android/app.
-      - name: Generate Android and sync
-        working-directory: native-source
-        run: |
-          set -euo pipefail
-          npx cap add android
-          npx cap sync android
-          test -d android/app/src/main/java
-          test -s android/build.gradle
-          test -s android/app/build.gradle
-
       - name: Add native notification channels and settings plugin
         working-directory: native-source
         run: |
+          set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-
           root=Path('android/app/src/main/java/com/cia/chat')
           root.mkdir(parents=True,exist_ok=True)
-
           (root/'NotificationSettingsPlugin.java').write_text('''package com.cia.chat;
           import android.content.Intent;
           import android.os.Build;
@@ -262,27 +304,21 @@ jobs:
           import com.getcapacitor.PluginMethod;
           import com.getcapacitor.annotation.CapacitorPlugin;
           import androidx.activity.OnBackPressedCallback;
-
           @CapacitorPlugin(name="NotificationSettings")
           public class NotificationSettingsPlugin extends Plugin {
             @Override public void load() {
               super.load();
-              getActivity().getOnBackPressedDispatcher().addCallback(
-                getActivity(),new OnBackPressedCallback(true) {
-                  public void handleOnBackPressed() {
-                    boolean can=getBridge()!=null&&getBridge().getWebView()!=null&&getBridge().getWebView().canGoBack();
-                    if(!hasListeners("backButton")) {
-                      if(can)getBridge().getWebView().goBack();
-                      else getActivity().finish();
-                      return;
-                    }
-                    JSObject e=new JSObject();
-                    e.put("canGoBack",can);
-                    notifyListeners("backButton",e,true);
+              getActivity().getOnBackPressedDispatcher().addCallback(getActivity(),new OnBackPressedCallback(true) {
+                public void handleOnBackPressed() {
+                  boolean can=getBridge()!=null&&getBridge().getWebView()!=null&&getBridge().getWebView().canGoBack();
+                  if(!hasListeners("backButton")) {
+                    if(can)getBridge().getWebView().goBack(); else getActivity().finish();
+                    return;
                   }
-                });
+                  JSObject e=new JSObject(); e.put("canGoBack",can); notifyListeners("backButton",e,true);
+                }
+              });
             }
-
             @PluginMethod public void openChannelSettings(PluginCall c) {
               String id=c.getString("channelId","cia_messages");
               try {
@@ -298,32 +334,18 @@ jobs:
                   i=new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
                   i.putExtra(Settings.EXTRA_APP_PACKAGE,getContext().getPackageName());
                 }
-                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                getContext().startActivity(i);
-                JSObject r=new JSObject();
-                r.put("opened",true);
-                c.resolve(r);
-              } catch(Exception e) {
-                c.reject("Tidak dapat membuka pengaturan notifikasi",e);
-              }
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); getContext().startActivity(i);
+                JSObject r=new JSObject(); r.put("opened",true); c.resolve(r);
+              } catch(Exception e) { c.reject("Tidak dapat membuka pengaturan notifikasi",e); }
             }
-
             @PluginMethod public void openAppSettings(PluginCall c) {
               try {
                 Intent i=new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
                 i.putExtra(Settings.EXTRA_APP_PACKAGE,getContext().getPackageName());
-                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                getContext().startActivity(i);
-                c.resolve();
-              } catch(Exception e) {
-                c.reject("Tidak dapat membuka pengaturan notifikasi",e);
-              }
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); getContext().startActivity(i); c.resolve();
+              } catch(Exception e) { c.reject("Tidak dapat membuka pengaturan notifikasi",e); }
             }
-
-            @PluginMethod public void exitApp(PluginCall c) {
-              c.resolve();
-              getActivity().finish();
-            }
+            @PluginMethod public void exitApp(PluginCall c) { c.resolve(); getActivity().finish(); }
           }''',encoding='utf-8')
 
           (root/'MainActivity.java').write_text('''package com.cia.chat;
@@ -333,7 +355,6 @@ jobs:
           import android.os.Build;
           import android.os.Bundle;
           import com.getcapacitor.BridgeActivity;
-
           public class MainActivity extends BridgeActivity {
             @Override public void onCreate(Bundle b) {
               registerPlugin(NotificationSettingsPlugin.class);
@@ -342,11 +363,9 @@ jobs:
                 NotificationManager m=(NotificationManager)getSystemService(Context.NOTIFICATION_SERVICE);
                 if(m!=null) {
                   NotificationChannel a=new NotificationChannel("cia_messages","Pesan CIA CHAT",NotificationManager.IMPORTANCE_HIGH);
-                  a.enableVibration(true);
-                  m.createNotificationChannel(a);
+                  a.enableVibration(true); a.enableLights(true); m.createNotificationChannel(a);
                   NotificationChannel c=new NotificationChannel("cia_calls","Panggilan CIA CHAT",NotificationManager.IMPORTANCE_HIGH);
-                  c.enableVibration(true);
-                  m.createNotificationChannel(c);
+                  c.enableVibration(true); c.enableLights(true); m.createNotificationChannel(c);
                 }
               }
             }
@@ -360,17 +379,14 @@ jobs:
           cp google-services.json android/app/google-services.json
           python3 - <<'PY'
           from pathlib import Path
-
           p=Path('android/build.gradle')
           s=p.read_text()
           marker="classpath 'com.google.gms:google-services:4.4.2'"
-
           if marker not in s:
               if 'dependencies {' not in s:
                   raise SystemExit('Blok dependencies tidak ditemukan di android/build.gradle')
               s=s.replace('dependencies {','dependencies {\n        '+marker,1)
               p.write_text(s)
-
           p=Path('android/app/build.gradle')
           s=p.read_text()
           plugin="apply plugin: 'com.google.gms.google-services'"
@@ -384,27 +400,20 @@ jobs:
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y imagemagick
-
           LOGO="www/cia-chat-logo.jpg"
           test -s "$LOGO"
           RES="android/app/src/main/res"
-
           mkdir -p "$RES/mipmap-mdpi" "$RES/mipmap-hdpi" "$RES/mipmap-xhdpi" "$RES/mipmap-xxhdpi" "$RES/mipmap-xxxhdpi" "$RES/drawable-nodpi" "$RES/mipmap-anydpi-v26"
-
           convert "$LOGO" -auto-orient -strip -resize '900x900>' -background white -gravity center -extent 1024x1024 /tmp/cia.png
-
           for spec in 'mdpi 48' 'hdpi 72' 'xhdpi 96' 'xxhdpi 144' 'xxxhdpi 192'; do
             set -- $spec
             convert /tmp/cia.png -filter Lanczos -resize "$2"x"$2" "$RES/mipmap-$1/ic_launcher.png"
             cp "$RES/mipmap-$1/ic_launcher.png" "$RES/mipmap-$1/ic_launcher_round.png"
           done
-
           convert "$LOGO" -auto-orient -strip -resize '286x286>' -background none -gravity center -extent 432x432 "$RES/drawable-nodpi/cia_chat_launcher_foreground.png"
-
           cat > "$RES/mipmap-anydpi-v26/ic_launcher.xml" <<'XML'
           <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@android:color/white"/><foreground android:drawable="@drawable/cia_chat_launcher_foreground"/></adaptive-icon>
           XML
-
           cp "$RES/mipmap-anydpi-v26/ic_launcher.xml" "$RES/mipmap-anydpi-v26/ic_launcher_round.xml"
 
       - name: Build APK
@@ -424,7 +433,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CIA-CHAT-Android-APK-V2-FCM-HEADSUP
+          name: CIA-CHAT-Android-APK-V3-WHATSAPP-AVATAR
           path: native-source/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
