@@ -1,4 +1,4 @@
-name: Build CIA CHAT Android APK V3 WhatsApp Style Avatar Heads-Up
+name: Build CIA CHAT Android APK V4 Native Camera Microphone Permissions
 
 on:
   workflow_dispatch:
@@ -37,6 +37,33 @@ jobs:
           cmp -s index.html native-source/www/index.html
           test -s native-source/www/cia-chat-logo.jpg
 
+      - name: Replace Chrome media permission guidance with CIA CHAT app guidance
+        working-directory: native-source
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('www/index.html')
+          s=p.read_text(encoding='utf-8')
+          replacements={
+            'Fitur telepon perlu dibuka melalui Chrome HTTPS.':'Fitur telepon memerlukan Android System WebView yang mendukung WebRTC.',
+            'Browser ini belum mendukung panggilan WebRTC. Buka situs melalui Google Chrome terbaru.':'Komponen Android System WebView belum mendukung panggilan WebRTC. Perbarui Android System WebView lalu buka ulang CIA CHAT.',
+            'Izin mikrofon/kamera ditolak. Izinkan akses untuk situs CIA CHAT di pengaturan Chrome.':'Izin kamera/mikrofon belum diberikan ke aplikasi CIA CHAT. Aktifkan Kamera dan Mikrofon di Pengaturan Android > Aplikasi > CIA CHAT > Izin.',
+            'Izin mikrofon/kamera ditolak. Izinkan akses di Chrome.':'Izin kamera/mikrofon belum diberikan ke aplikasi CIA CHAT. Aktifkan Kamera dan Mikrofon di Pengaturan Android > Aplikasi > CIA CHAT > Izin.',
+            'Izin kamera ditolak. Aktifkan izin kamera di pengaturan situs Chrome.':'Izin kamera belum diberikan ke aplikasi CIA CHAT. Aktifkan Kamera di Pengaturan Android > Aplikasi > CIA CHAT > Izin.',
+            'Izin mikrofon ditolak. Aktifkan izin mikrofon di pengaturan situs Chrome.':'Izin mikrofon belum diberikan ke aplikasi CIA CHAT. Aktifkan Mikrofon di Pengaturan Android > Aplikasi > CIA CHAT > Izin.',
+            'Periksa izin situs Chrome lalu coba lagi.':'Periksa izin Kamera dan Mikrofon untuk aplikasi CIA CHAT di Pengaturan Android, lalu coba lagi.',
+          }
+          changed=0
+          for old,new in replacements.items():
+              count=s.count(old)
+              if count:
+                  s=s.replace(old,new)
+                  changed+=count
+          p.write_text(s,encoding='utf-8')
+          print(f'Updated {changed} native-app media permission guidance strings.')
+          PY
+
       - name: Verify notification tap routing
         working-directory: native-source
         run: |
@@ -71,6 +98,38 @@ jobs:
           test -d android/app/src/main/java
           test -s android/build.gradle
           test -s android/app/build.gradle
+
+      - name: Declare native camera and microphone permissions
+        working-directory: native-source
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p=Path('android/app/src/main/AndroidManifest.xml')
+          if not p.is_file():
+              raise SystemExit('AndroidManifest.xml tidak ditemukan setelah Capacitor generate Android.')
+          s=p.read_text(encoding='utf-8')
+          permissions = [
+              'android.permission.CAMERA',
+              'android.permission.RECORD_AUDIO',
+              'android.permission.MODIFY_AUDIO_SETTINGS',
+          ]
+          missing=[]
+          for perm in permissions:
+              if f'android:name="{perm}"' not in s and f"android:name='{perm}'" not in s:
+                  missing.append(f'    <uses-permission android:name="{perm}" />\n')
+          if missing:
+              app=s.find('<application')
+              if app < 0:
+                  raise SystemExit('Tag <application> tidak ditemukan di AndroidManifest.xml.')
+              s=s[:app]+''.join(missing)+s[app:]
+              p.write_text(s,encoding='utf-8')
+          for perm in permissions:
+              if perm not in s:
+                  raise SystemExit('Gagal menambahkan izin: '+perm)
+          print('Android camera, microphone, and audio settings permissions configured.')
+          PY
 
       - name: Install native FCM service with sender avatar and conversation shortcut
         working-directory: native-source
@@ -352,10 +411,14 @@ jobs:
           import android.app.NotificationChannel;
           import android.app.NotificationManager;
           import android.content.Context;
+          import android.content.pm.PackageManager;
+          import android.Manifest;
           import android.os.Build;
           import android.os.Bundle;
           import com.getcapacitor.BridgeActivity;
+          import java.util.ArrayList;
           public class MainActivity extends BridgeActivity {
+            private static final int CIA_MEDIA_PERMISSION_REQUEST = 8201;
             @Override public void onCreate(Bundle b) {
               registerPlugin(NotificationSettingsPlugin.class);
               super.onCreate(b);
@@ -368,6 +431,19 @@ jobs:
                   c.enableVibration(true); c.enableLights(true); m.createNotificationChannel(c);
                 }
               }
+              requestMediaPermissionsFromApp();
+            }
+            // Dialog izin Android tampil dari aplikasi CIA CHAT, bukan menu izin situs Chrome.
+            // BridgeWebChromeClient Capacitor meneruskan izin ini ke WebView untuk WebRTC.
+            private void requestMediaPermissionsFromApp() {
+              if(Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
+              ArrayList<String> missing = new ArrayList<>();
+              if(checkSelfPermission(Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED)
+                missing.add(Manifest.permission.CAMERA);
+              if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED)
+                missing.add(Manifest.permission.RECORD_AUDIO);
+              if(!missing.isEmpty())
+                requestPermissions(missing.toArray(new String[0]),CIA_MEDIA_PERMISSION_REQUEST);
             }
           }''',encoding='utf-8')
           PY
@@ -433,7 +509,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CIA-CHAT-Android-APK-V3-WHATSAPP-AVATAR
+          name: CIA-CHAT-Android-APK-V4-NATIVE-MEDIA-PERMISSIONS
           path: native-source/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
