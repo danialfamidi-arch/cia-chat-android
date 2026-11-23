@@ -1,3 +1,4 @@
+
 name: Build CIA CHAT Android APK V4 Native Camera Microphone Permissions
 
 on:
@@ -28,11 +29,11 @@ jobs:
           test -f native-source/google-services.json
           test -f native-source/www/index.html
 
-      - name: Install latest CIA CHAT Story HTML V178
+      - name: Install latest CIA CHAT Story HTML V179
         run: |
           set -euo pipefail
           test -s index.html
-          grep -q 'CIA_CHAT_BUILD="V178-STORY-REAL-THUMBNAIL-AUTOPLAY"' index.html
+          grep -q 'CIA_CHAT_BUILD="V179-STORY-AUTOPLAY-NOTIFICATIONS-UNREAD"' index.html
           install -m 0644 index.html native-source/www/index.html
           cmp -s index.html native-source/www/index.html
           test -s native-source/www/cia-chat-logo.jpg
@@ -214,8 +215,6 @@ jobs:
               PendingIntent pi=PendingIntent.getActivity(this,id,launch,
                 PendingIntent.FLAG_UPDATE_CURRENT|(Build.VERSION.SDK_INT>=23?PendingIntent.FLAG_IMMUTABLE:0));
 
-              // Fetch or reuse the sender photo BEFORE the first notify(), so the Heads-Up
-              // notification itself can contain the avatar rather than receiving it too late.
               Bitmap avatar=null;
               if(!call && !avatarUrl.isEmpty() && avatarUrl.startsWith("https://")) {
                 avatar=loadAvatar(avatarUrl);
@@ -275,7 +274,6 @@ jobs:
                 if(Build.VERSION.SDK_INT>=30) sm.pushDynamicShortcut(info);
                 else sm.addDynamicShortcuts(Collections.singletonList(info));
               } catch(Exception ignored) {
-                // Notification still works as MessagingStyle even if shortcut publishing fails.
               }
             }
 
@@ -324,8 +322,12 @@ jobs:
               float scale=Math.max((float)size/source.getWidth(),(float)size/source.getHeight());
               float w=source.getWidth()*scale, h=source.getHeight()*scale;
               RectF dst=new RectF((size-w)/2f,(size-h)/2f,(size+w)/2f,(size+h)/2f);
-              Path path=new Path(); path.addCircle(size/2f,size/2f,size/2f,Path.Direction.CW);
-              canvas.save(); canvas.clipPath(path); canvas.drawBitmap(source,null,dst,paint); canvas.restore();
+              Path path=new Path();
+              path.addCircle(size/2f,size/2f,size/2f,Path.Direction.CW);
+              canvas.save();
+              canvas.clipPath(path);
+              canvas.drawBitmap(source,null,dst,paint);
+              canvas.restore();
               if(source!=output && !source.isRecycled()) source.recycle();
               return output;
             }
@@ -393,18 +395,28 @@ jobs:
                   i=new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
                   i.putExtra(Settings.EXTRA_APP_PACKAGE,getContext().getPackageName());
                 }
-                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); getContext().startActivity(i);
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(i);
                 JSObject r=new JSObject(); r.put("opened",true); c.resolve(r);
-              } catch(Exception e) { c.reject("Tidak dapat membuka pengaturan notifikasi",e); }
+              } catch(Exception e) {
+                c.reject("Tidak dapat membuka pengaturan notifikasi",e);
+              }
             }
             @PluginMethod public void openAppSettings(PluginCall c) {
               try {
                 Intent i=new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
                 i.putExtra(Settings.EXTRA_APP_PACKAGE,getContext().getPackageName());
-                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); getContext().startActivity(i); c.resolve();
-              } catch(Exception e) { c.reject("Tidak dapat membuka pengaturan notifikasi",e); }
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(i);
+                c.resolve();
+              } catch(Exception e) {
+                c.reject("Tidak dapat membuka pengaturan notifikasi",e);
+              }
             }
-            @PluginMethod public void exitApp(PluginCall c) { c.resolve(); getActivity().finish(); }
+            @PluginMethod public void exitApp(PluginCall c) {
+              c.resolve();
+              getActivity().finish();
+            }
           }''',encoding='utf-8')
 
           (root/'MainActivity.java').write_text('''package com.cia.chat;
@@ -426,15 +438,17 @@ jobs:
                 NotificationManager m=(NotificationManager)getSystemService(Context.NOTIFICATION_SERVICE);
                 if(m!=null) {
                   NotificationChannel a=new NotificationChannel("cia_messages","Pesan CIA CHAT",NotificationManager.IMPORTANCE_HIGH);
-                  a.enableVibration(true); a.enableLights(true); m.createNotificationChannel(a);
+                  a.enableVibration(true);
+                  a.enableLights(true);
+                  m.createNotificationChannel(a);
                   NotificationChannel c=new NotificationChannel("cia_calls","Panggilan CIA CHAT",NotificationManager.IMPORTANCE_HIGH);
-                  c.enableVibration(true); c.enableLights(true); m.createNotificationChannel(c);
+                  c.enableVibration(true);
+                  c.enableLights(true);
+                  m.createNotificationChannel(c);
                 }
               }
               requestMediaPermissionsFromApp();
             }
-            // Dialog izin Android tampil dari aplikasi CIA CHAT, bukan menu izin situs Chrome.
-            // BridgeWebChromeClient Capacitor meneruskan izin ini ke WebView untuk WebRTC.
             private void requestMediaPermissionsFromApp() {
               if(Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
               ArrayList<String> missing = new ArrayList<>();
