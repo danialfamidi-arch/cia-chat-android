@@ -1,4 +1,3 @@
-
 name: Build CIA CHAT Android APK V4 Native Camera Microphone Permissions
 
 on:
@@ -29,14 +28,17 @@ jobs:
           test -f native-source/google-services.json
           test -f native-source/www/index.html
 
-      - name: Install latest CIA CHAT Story HTML V179
+      # Accept the current root index.html without pinning the build to V179.
+      # This avoids the previous grep failure when the app HTML version changes.
+      - name: Install latest CIA CHAT HTML from repository
         run: |
           set -euo pipefail
           test -s index.html
-          grep -q 'CIA_CHAT_BUILD="V179-STORY-AUTOPLAY-NOTIFICATIONS-UNREAD"' index.html
+          grep -Eiq '<!doctype[[:space:]]+html|<html([[:space:]>])' index.html
           install -m 0644 index.html native-source/www/index.html
           cmp -s index.html native-source/www/index.html
           test -s native-source/www/cia-chat-logo.jpg
+          echo "Installed repository index.html ($(wc -c < index.html) bytes)."
 
       - name: Replace Chrome media permission guidance with CIA CHAT app guidance
         working-directory: native-source
