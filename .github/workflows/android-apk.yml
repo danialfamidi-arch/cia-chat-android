@@ -1,4 +1,4 @@
-name: Build CIA CHAT Android APK V4 Native Camera Microphone Permissions
+name: Build CIA CHAT Android APK V5 Photo Data Saver and On-Demand Location
 
 on:
   workflow_dispatch:
@@ -102,7 +102,7 @@ jobs:
           test -s android/build.gradle
           test -s android/app/build.gradle
 
-      - name: Declare native camera and microphone permissions
+      - name: Declare native camera microphone and on-demand location permissions
         working-directory: native-source
         run: |
           set -euo pipefail
@@ -117,6 +117,8 @@ jobs:
               'android.permission.CAMERA',
               'android.permission.RECORD_AUDIO',
               'android.permission.MODIFY_AUDIO_SETTINGS',
+              'android.permission.ACCESS_COARSE_LOCATION',
+              'android.permission.ACCESS_FINE_LOCATION',
           ]
           missing=[]
           for perm in permissions:
@@ -131,7 +133,7 @@ jobs:
           for perm in permissions:
               if perm not in s:
                   raise SystemExit('Gagal menambahkan izin: '+perm)
-          print('Android camera, microphone, and audio settings permissions configured.')
+          print('Android camera, microphone, audio, and on-demand geolocation permissions configured.')
           PY
 
       - name: Install native FCM service with sender avatar and conversation shortcut
