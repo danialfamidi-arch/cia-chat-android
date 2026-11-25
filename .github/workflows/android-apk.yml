@@ -76,6 +76,8 @@ jobs:
           grep -q 'story_comment_id' www/index.html
           grep -q 'group_message_id' www/index.html
           grep -q 'open_chat' www/index.html
+          grep -q 'GallerySave' www/index.html
+          grep -q 'savePhoto' www/index.html
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -464,6 +466,103 @@ jobs:
                 requestPermissions(missing.toArray(new String[0]),CIA_MEDIA_PERMISSION_REQUEST);
             }
           }''',encoding='utf-8')
+          PY
+
+      - name: Install native GallerySave plugin for direct Android Gallery downloads
+        working-directory: native-source
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          root=Path('android/app/src/main/java/com/cia/chat')
+          root.mkdir(parents=True,exist_ok=True)
+          plugin = r'''
+          package com.cia.chat;
+          
+          import android.content.ContentValues;
+          import android.media.MediaScannerConnection;
+          import android.net.Uri;
+          import android.os.Build;
+          import android.os.Environment;
+          import android.provider.MediaStore;
+          import android.util.Base64;
+          import com.getcapacitor.JSObject;
+          import com.getcapacitor.Plugin;
+          import com.getcapacitor.PluginCall;
+          import com.getcapacitor.PluginMethod;
+          import com.getcapacitor.annotation.CapacitorPlugin;
+          import java.io.File;
+          import java.io.FileOutputStream;
+          import java.io.OutputStream;
+          
+          @CapacitorPlugin(name = "GallerySave")
+          public class GallerySavePlugin extends Plugin {
+            @PluginMethod
+            public void savePhoto(PluginCall call) {
+              String encoded = call.getString("data", "");
+              String fileName = call.getString("fileName", "CIA-CHAT-Story.jpg");
+              String mimeType = call.getString("mimeType", "image/jpeg");
+              if (encoded == null || encoded.isEmpty()) {
+                call.reject("Data foto kosong.");
+                return;
+              }
+              try {
+                int comma = encoded.indexOf(',');
+                if (encoded.startsWith("data:") && comma >= 0) encoded = encoded.substring(comma + 1);
+                byte[] bytes = Base64.decode(encoded, Base64.DEFAULT);
+                if (bytes.length == 0) throw new IllegalArgumentException("File foto kosong.");
+                String safeName = fileName.replaceAll("[^A-Za-z0-9._-]", "_");
+                if (!safeName.toLowerCase().matches(".*\\.(jpg|jpeg|png|webp)$")) safeName += ".jpg";
+                Uri savedUri;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                  ContentValues values = new ContentValues();
+                  values.put(MediaStore.Images.Media.DISPLAY_NAME, safeName);
+                  values.put(MediaStore.Images.Media.MIME_TYPE, mimeType);
+                  values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/CIA CHAT");
+                  values.put(MediaStore.Images.Media.IS_PENDING, 1);
+                  Uri collection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+                  savedUri = getContext().getContentResolver().insert(collection, values);
+                  if (savedUri == null) throw new IllegalStateException("Android tidak dapat membuat file Galeri.");
+                  try (OutputStream out = getContext().getContentResolver().openOutputStream(savedUri, "w")) {
+                    if (out == null) throw new IllegalStateException("Tidak dapat membuka file Galeri.");
+                    out.write(bytes);
+                    out.flush();
+                  }
+                  ContentValues ready = new ContentValues();
+                  ready.put(MediaStore.Images.Media.IS_PENDING, 0);
+                  getContext().getContentResolver().update(savedUri, ready, null, null);
+                } else {
+                  File pictures = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
+                  File folder = new File(pictures, "CIA CHAT");
+                  if (!folder.exists() && !folder.mkdirs()) throw new IllegalStateException("Folder Galeri tidak dapat dibuat.");
+                  File target = new File(folder, safeName);
+                  try (FileOutputStream out = new FileOutputStream(target)) { out.write(bytes); out.flush(); }
+                  MediaScannerConnection.scanFile(getContext(), new String[]{target.getAbsolutePath()}, new String[]{mimeType}, null);
+                  savedUri = Uri.fromFile(target);
+                }
+                JSObject result = new JSObject();
+                result.put("saved", true);
+                result.put("uri", savedUri.toString());
+                result.put("fileName", safeName);
+                call.resolve(result);
+              } catch (Exception error) {
+                call.reject("Gagal menyimpan foto ke Galeri: " + error.getMessage(), error);
+              }
+            }
+          }
+          '''
+          (root/'GallerySavePlugin.java').write_text(plugin,encoding='utf-8')
+          main=root/'MainActivity.java'
+          s=main.read_text(encoding='utf-8')
+          marker='registerPlugin(NotificationSettingsPlugin.class);'
+          if marker not in s:
+              raise SystemExit('Pendaftaran NotificationSettingsPlugin tidak ditemukan; MainActivity tidak diubah.')
+          if 'registerPlugin(GallerySavePlugin.class);' not in s:
+              s=s.replace(marker, marker+'\n      registerPlugin(GallerySavePlugin.class);', 1)
+          main.write_text(s,encoding='utf-8')
+          if 'registerPlugin(GallerySavePlugin.class);' not in s:
+              raise SystemExit('GallerySavePlugin gagal didaftarkan.')
+          print('GallerySavePlugin installed and registered in MainActivity.')
           PY
 
       - name: Configure Firebase
